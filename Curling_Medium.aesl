@@ -1,0 +1,140 @@
+<!DOCTYPE aesl-source>
+<network>
+
+
+<!--list of global events-->
+
+
+<!--list of constants-->
+<constant value="0" name="STOPPED"/>
+<constant value="1" name="RECOGNIZE"/>
+<constant value="2" name="MOVE"/>
+<constant value="3" name="ADJUST"/>
+<constant value="4" name="TURN"/>
+
+
+<!--show keywords state-->
+<keywords flag="true"/>
+
+
+<!--node thymio-II-->
+<node nodeId="1" name="thymio-II">var state = STOPPED
+var state_previous = RECOGNIZE
+var state_step = 1
+var global_timer = 0
+var start = 1
+var timer3 = 0
+var timer4 = 0
+var oneeighty_done = 0
+
+#Constants for later
+var TARGET = 300
+var TURNTIME = 625
+var THRESHOLD = 300
+
+#stop-routine
+sub stop
+	state = STOPPED
+	motor.left.target = 0
+	motor.right.target = 0
+	timer.period[0] = 0
+	timer.period[1] = 0
+	timer3 = 0
+	timer4 = 0
+	start = 1
+	call leds.circle(32,32,32,32,32,32,32,32)
+
+#right-turn
+sub turn_right
+	motor.left.target = TARGET
+	motor.right.target = -TARGET
+	timer.period[1] = TURNTIME
+	state_previous = state
+	state = TURN
+
+#left-turn
+sub turn_left
+	motor.left.target = -TARGET
+	motor.right.target = TARGET
+	timer.period[1] = TURNTIME
+	state_previous = state
+	state = TURN
+
+sub oneeighty
+	motor.left.target = TARGET
+	motor.right.target = -TARGET
+	timer.period[1] = TURNTIME * 2
+	oneeighty_done = 1
+	state_previous = state
+	state = TURN
+
+#go-forward
+sub forward
+	motor.left.target = TARGET
+	motor.right.target = TARGET
+
+#go-backward
+sub backward_recognize
+	motor.left.target = -TARGET
+	motor.right.target = -TARGET
+	call math.div(timer.period[0],timer3,2)
+		
+#start-routine	
+sub start
+	callsub turn_right
+	
+onevent button.forward
+	callsub start
+	
+onevent button.backward
+	callsub stop
+
+
+#Proximity
+onevent prox
+	#Find middle of table
+	if  state == RECOGNIZE and state_step == 1 then
+		if  prox.ground.delta[1] &lt;= THRESHOLD then
+			if  timer3 &lt;= 1000 then
+				timer.period[0] = 0
+				timer3 = 0
+				start = 1
+				callsub oneeighty
+			else
+				timer.period[0] = 0
+				state_step = 2
+				callsub backward_recognize
+			end
+		end
+	end
+#TImer0
+onevent timer0
+	if state == RECOGNIZE then
+		if state_step == 1 then
+			timer3 = timer3 + timer.period[0]
+		end
+		if  state_step == 2 then
+			if oneeighty_done == 0 then
+				state = MOVE
+				callsub turn_left
+			end
+			if  oneeighty_done == 1 then
+				state = MOVE
+				callsub turn_right
+			end
+			
+		end
+	end
+		
+#Timer1
+onevent timer1
+		state = RECOGNIZE
+		timer.period[1] = 0
+		callsub forward
+		if  start == 1 then
+			timer.period[0] = 10
+			start = 0
+		end</node>
+
+
+</network>
