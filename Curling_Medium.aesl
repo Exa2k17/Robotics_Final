@@ -11,6 +11,10 @@
 <constant value="2" name="MOVE"/>
 <constant value="3" name="ADJUST"/>
 <constant value="4" name="TURN"/>
+<constant value="300" name="TARGET"/>
+<constant value="625" name="TURNTIME"/>
+<constant value="300" name="THRESHOLD"/>
+<constant value="5" name="W_IMPACT"/>
 
 
 <!--show keywords state-->
@@ -26,11 +30,6 @@ var start = 1
 var timer3 = 0
 var timer4 = 0
 var oneeighty_done = 0
-
-#Constants for later
-var TARGET = 300
-var TURNTIME = 625
-var THRESHOLD = 300
 
 #stop-routine
 sub stop
@@ -82,6 +81,7 @@ sub backward_recognize
 #start-routine	
 sub start
 	callsub turn_right
+	call leds.circle(0,0,0,0,0,0,0,0)
 	
 onevent button.forward
 	callsub start
@@ -107,6 +107,21 @@ onevent prox
 			end
 		end
 	end
+	if  state == MOVE then
+		if  prox.ground.delta[1] &lt;= THRESHOLD then
+			state = ADJUST
+			motor.left.target = TARGET/2
+			motor.right.target = TARGET/2
+			timer.period[0] = 1000
+		end
+	end
+
+onevent tap
+	while  prox.ground.delta[0] >= THRESHOLD do
+		motor.left.target = -TARGET
+		motor.right.target = -TARGET
+	end
+	
 #TImer0
 onevent timer0
 	if state == RECOGNIZE then
@@ -117,24 +132,35 @@ onevent timer0
 			if oneeighty_done == 0 then
 				state = MOVE
 				callsub turn_left
+				timer.period[0] = 0
 			end
 			if  oneeighty_done == 1 then
 				state = MOVE
 				callsub turn_right
+				timer.period[0] = 0
 			end
-			
 		end
+	end
+	if  state == ADJUST then
+		motor.left.target = 0
+		motor.right.target = 0
+		timer.period[0] = 0
+		callsub stop
+		state = W_IMPACT
 	end
 		
 #Timer1
 onevent timer1
-		state = RECOGNIZE
+		state = state_previous
 		timer.period[1] = 0
 		callsub forward
 		if  start == 1 then
+			state = RECOGNIZE
 			timer.period[0] = 10
 			start = 0
-		end</node>
+		end
+		
+</node>
 
 
 </network>

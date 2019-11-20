@@ -1,0 +1,323 @@
+<!DOCTYPE aesl-source>
+<network>
+
+
+<!--list of global events-->
+
+
+<!--list of constants-->
+<constant value="0" name="STOPPED"/>
+<constant value="1" name="REST"/>
+<constant value="2" name="SCAN"/>
+<constant value="3" name="FINDBL"/>
+<constant value="4" name="FINISH"/>
+<constant value="1010" name="RED"/>
+<constant value="1110" name="GREEN"/>
+<constant value="1101" name="BLUE"/>
+<constant value="1001" name="WHITE"/>
+<constant value="4000" name="THRESHOLD_PATTERN_SCAN"/>
+<constant value="500" name="THRESHOLD_GREY"/>
+<constant value="200" name="SPEED"/>
+<constant value="1085" name="TURNTIME"/>
+<constant value="1" name="HIT"/>
+<constant value="0" name="MISS"/>
+
+
+<!--show keywords state-->
+<keywords flag="true"/>
+
+
+<!--node thymio-II-->
+<node nodeId="1" name="thymio-II">var state
+
+#scan
+var l
+var m
+var r
+var rescue
+var color
+
+#findbl
+var phase = 0
+
+#localization
+var loccount = 0
+var ground[8]
+var world[8] = [5,4,5,5,5,4,4,5]
+var beliefs[8]
+var beliefstmp
+var sum
+var i
+var hit
+
+#backward
+onevent button.backward
+	callsub stop
+
+#right	
+onevent button.right
+	state = SCAN
+	callsub scan
+	rescue = color
+	callsub led
+
+#forward
+onevent button.forward
+	state = FINDBL
+	call math.fill(beliefs,1000/8)
+	
+
+	
+#stop	
+sub stop
+	call leds.top(0,0,0)
+	motor.left.target = 0
+	motor.right.target = 0
+	loccount = 0
+	ground = [0,0,0,0,0,0,0,0]
+	call math.fill(beliefs,1000/8)
+	phase = 0
+	state = STOPPED
+	timer.period[0] = 0
+	timer.period[1] = 0
+	
+
+#led	
+sub led
+	if color == RED then
+		call leds.top(32,0,0)
+	end
+	if color == GREEN then
+		call leds.top(0,32,0)
+	end
+	if color == BLUE then
+		call leds.top(0,0,32)
+	end
+	if color == WHITE then
+		call leds.top(32,32,32)
+	end
+
+#scan
+sub scan
+	l = prox.horizontal[1]
+	m = prox.horizontal[2]
+	r = prox.horizontal[3]
+	
+	if l > THRESHOLD_PATTERN_SCAN
+		and m &lt; THRESHOLD_PATTERN_SCAN 
+		and r > THRESHOLD_PATTERN_SCAN then
+			color = RED
+
+	elseif l &lt; THRESHOLD_PATTERN_SCAN 
+		and m &lt; THRESHOLD_PATTERN_SCAN 
+		and r > THRESHOLD_PATTERN_SCAN then
+			color = GREEN
+
+	elseif l &lt; THRESHOLD_PATTERN_SCAN 
+		and m > THRESHOLD_PATTERN_SCAN 
+		and r &lt; THRESHOLD_PATTERN_SCAN then
+			color = BLUE
+	
+	elseif l > THRESHOLD_PATTERN_SCAN
+		and m > THRESHOLD_PATTERN_SCAN 
+		and r &lt; THRESHOLD_PATTERN_SCAN then
+			color = WHITE
+	
+	else
+		color = 1111
+	end
+	if rescue == color and state==FINDBL then
+		state = FINISH
+		motor.left.target=-SPEED
+		motor.right.target=-SPEED
+		timer.period[0]=4500
+	end
+	
+#rotate
+sub rotate
+	beliefstmp = beliefs[7]
+	for i in 7:1 step -1 do
+		beliefs[i] = beliefs[i-1]
+	end
+	beliefs[0]=beliefstmp
+	
+#sense
+sub sense
+	if prox.ground.delta[1] &lt; THRESHOLD_GREY then
+		hit = 1
+	else 
+		hit = 0
+	end
+	for i in 0:7 do
+			if (hit==1 and world[i]==1) or (hit==0 and world[i]==0) then
+				call math.mul(beliefs[i], beliefs[i], HIT)
+			else
+				call math.mul(beliefs[i], beliefs[i], MISS)
+			end
+	end
+	callsub normalize
+	
+#normalize
+sub normalize
+	sum = 0
+	for i in 0:7 do 
+		sum += beliefs[i]
+	end
+	for i in 0:7 do 
+		call math.muldiv(beliefs[i], beliefs[i],1000,sum) 
+	end
+
+#display beliefs
+sub display_beliefs
+	call leds.circle( beliefs[0]/32, beliefs[1]/32, beliefs[2]/32,
+	beliefs[3]/32, beliefs[4]/32, beliefs[5]/32,
+	beliefs[6]/32, beliefs[7]/32)
+	
+	
+#localization
+sub loc
+		callsub rotate
+		callsub sense
+		callsub display_beliefs
+
+	
+#groundcolor
+sub groundcolor
+	#light=5 &amp; dark=4
+	if prox.ground.delta[1] > THRESHOLD_GREY then
+		ground[loccount] = 5
+	elseif prox.ground.delta[1] &lt; THRESHOLD_GREY then
+		ground[loccount] = 4
+	end
+	loccount++
+	callsub loc
+	
+#rightturn
+sub right
+	motor.right.target = -SPEED
+	motor.left.target = SPEED
+	timer.period[0] = TURNTIME
+	
+#leftturn
+sub left 
+	motor.right.target = SPEED
+	motor.left.target = -SPEED
+	timer.period[0] = TURNTIME
+	
+	
+onevent prox
+	if state==FINDBL and phase==0 then
+		callsub scan
+		#done if rescue == color
+		phase = 1
+	end
+	if state==FINDBL and phase==1 then
+		callsub right
+		phase = 2
+	end
+	if state==FINDBL and phase==2 and timer.period[0]==0 then
+		callsub groundcolor
+		phase = 3
+	end
+	if state==FINDBL and phase==3 then
+		if prox.horizontal[2]>0 then
+			motor.right.target = SPEED
+			motor.left.target = SPEED
+			callsub right
+		end
+		phase = 4
+	end
+	if state==FINDBL and phase==4 and timer.period[0]==0 then
+		motor.left.target=SPEED
+		motor.right.target=SPEED
+		phase = 5
+	end
+	if state==FINDBL and phase==5 then
+		if prox.ground.delta[1] &lt; 270 then
+			timer.period[0]=1000 #set right time
+			phase = 6
+		end
+	end
+	if state==FINDBL and phase==6 and timer.period[0]==0 then
+		callsub left
+		phase = 7
+	end
+	if state==FINDBL and phase==7 and timer.period[0]==0 then
+		#if prox.horizontal[2]>4600 then#adjust
+		if prox.horizontal[0] >1700 and prox.horizontal[4]>1700 then
+			motor.left.target=0
+			motor.right.target=0
+			phase = 0
+		end
+		motor.left.target=SPEED
+		motor.right.target=SPEED
+	end
+	
+	
+	
+	
+onevent timer0
+	motor.right.target = 0
+	motor.left.target = 0
+	timer.period[0] = 0
+	if state==FINISH then
+		callsub led
+	end
+	
+##drive
+#onevent prox
+#	call math.stat(prox.horizontal[0:6],min,max,mean)
+#	#start
+#	if state==FINDBL and phase==0 then
+#		if max==0 and prox.ground.delta[1] &lt; 800 then
+#			motor.left.target = SPEED
+#			motor.right.target = SPEED
+#		elseif max>0 then
+#			motor.left.target = 0
+#			motor.right.target = 0
+#			phase = 1
+#		elseif prox.ground.delta[1] > 800 then
+#			motor.left.target = 0
+#			motor.right.target = 0
+#			phase = 2
+#		end
+#	end
+#	#findwall
+#	if state==FINDBL and phase==1 then
+#		if max > 0 then
+#			if prox.horizontal[2] == max then
+#				motor.left.target = 0
+#				motor.right.target = 0
+#				phase = 3
+#			else	
+#				motor.left.target = SPEED+100
+#				motor.right.target = -SPEED
+#			end
+#		end
+#	end
+#	#stay in circle
+#	if state==FINDBL and phase==2 then
+#		if max>0 then
+#			motor.left.target = 0
+#			motor.right.target = 0
+#			phase = 1
+#		elseif prox.ground.delta[1] &lt; 800 then
+#			motor.left.target = -SPEED
+#			motor.right.target = 500
+#		elseif prox.ground.delta[1] > 800 then
+#			motor.left.target = 500
+#			motor.right.target = -SPEED
+#		end
+#	end
+#	#findbl
+#	if state==FINDBL and phase==3 then
+#		#move right along wall until black line black if prox ground 0 &lt; 450
+#		#go to state BLACKLINE
+#	end
+		
+
+
+</node>
+
+
+</network>
